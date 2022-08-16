@@ -19,7 +19,6 @@ from time import time
 
 
 
-# Sequential 안에서 바로 Reshape 해줌.
 class Reshape(nn.Module):
 
     def __init__(self, shape):
@@ -30,16 +29,6 @@ class Reshape(nn.Module):
     
     def forward(self, x):
         return x.view(-1, *self.shape)
-
-
-
-class Upsampling(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-    
-    def forward(self, x):
-        return F.interpolate(x, scale_factor=2.0)
 
 
 class WSConv2d(nn.Module):
@@ -64,317 +53,162 @@ class WSConv2d(nn.Module):
         return self.conv(x)
 
 
-
-class WSLinear(nn.Module):
-
-    def __init__(self, in_features, out_features):
-        super().__init__()
-
-        self.linear = nn.Linear(in_features, out_features)
-
-        std = 1 / math.sqrt(in_features)
-
-        nn.init.normal_(self.linear.weight, mean=0.0, std=std)
-        nn.init.zeros_(self.linear.bias)
-
-    
-    def forward(self, x):
-        return self.linear(x)
-
-
-
-class AdaIN(nn.Module):
-
-    def __init__(self, style_dim, in_channels, out_channels, kernel_size=3, stride=1, padding=1, scale_factor=1.0):
-        super().__init__()
-
-        self.eps = 1e-5
-
-        self.affine = WSLinear(style_dim, in_channels*2)
-        self.channels = in_channels
-
-        self.scale_factor = scale_factor
-
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.leakyrelu = nn.LeakyReLU(0.2)
-    
-
-    def forward(self, x, style):
-        # x shape: (batch_size, channels, H, W)
-        # style shape: (batch_size, style_dim)
-
-        x = F.interpolate(x, scale_factor=self.scale_factor)
-
-        style = self.affine(style) # (batch_size, channels*2)
-        style = style.view(-1, self.channels*2, 1, 1)
-        
-        x_mean = torch.mean(x, dim=(2, 3), keepdim=True)
-        x_std = torch.std(x, dim=(2, 3), keepdim=True)
-
-        out = (x - x_mean) / (x_std + self.eps)
-        out = out * style[:, :self.channels, :, :] + style[:, self.channels:, :, :]
-        
-        out = self.conv(out)
-        out = self.leakyrelu(out)
-
-        return out
-
-
 class Generator(nn.Module):
     
     def __init__(self):
         super().__init__()
 
+        def conv_block(in_channels, out_channels, downsampling=True):
+            return nn.Sequential(
+                WSConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(0.2),
+                nn.BatchNorm2d(out_channels),
+
+                WSConv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(0.2),
+                nn.BatchNorm2d(out_channels),
+
+                nn.MaxPool2d(2, 2) if downsampling else nn.Sequential()
+            )
+
+        def deconv_block(in_channels, out_channels):
+            return nn.Sequential(
+                WSConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, transposed=True),
+                nn.LeakyReLU(0.2),
+                nn.BatchNorm2d(out_channels),
+
+                WSConv2d(out_channels, out_channels, kernel_size=4, stride=2, padding=1, transposed=True),
+                nn.LeakyReLU(0.2),
+                nn.BatchNorm2d(out_channels),
+            )
+
         # input shape: (1, 128, 128)
-        self.first_content_extractor = nn.Sequential(
-            nn.Sequential(
-                WSConv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (16, 128, 128)
-            
-            nn.Sequential(
-                WSConv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (64, 32, 32)
+        self.content_extractor = nn.ModuleList([
+            conv_block(1, 16), # (16, 64, 64)
+            conv_block(16, 64), # (64, 32, 32)
+            conv_block(64, 128), # (128, 16, 16)
+            conv_block(128, 256), # (256, 8, 8)
+            conv_block(256, 512), # (512, 4, 4)
+        ])
 
-            nn.Sequential(
-                WSConv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (128, 16, 16)
-
-            nn.Sequential(
-                WSConv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (256, 8, 8)
-
-            nn.Sequential(
-                WSConv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (512, 4, 4)
+        # input shape: (1, 128, 128)
+        self.style_extractor = nn.Sequential(
+            conv_block(1, 4), # (16, 64, 64)
+            conv_block(4, 16), # (64, 32, 32)
+            conv_block(16, 32), # (32, 16, 16)
+            conv_block(32, 64), # (64, 8, 8)
+            conv_block(64, 128), # (128, 4, 4)
         )
 
+        # input shape: (512+128, 4, 4)
+        self.generator = nn.ModuleList([
+            deconv_block(512+128, 512), # (512, 8, 8)
+            deconv_block(512, 256), # (256, 16, 16)
+            deconv_block(256, 128), # (128, 32, 32)
+            deconv_block(128, 64), # (64, 64, 64)
+            deconv_block(64, 16), # (16, 128, 128)
+            nn.Sequential(
+                WSConv2d(in_channels=16, out_channels=16, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(0.2),
 
-        # input shape: (1, 128, 128)
-        self.middle_content_extractor = nn.Sequential(
-            nn.Sequential(
-                WSConv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (16, 128, 128)
-            
-            nn.Sequential(
-                WSConv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (64, 32, 32)
-
-            nn.Sequential(
-                WSConv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (128, 16, 16)
-
-            nn.Sequential(
-                WSConv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (256, 8, 8)
-
-            nn.Sequential(
-                WSConv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (512, 4, 4)
-        )
+                WSConv2d(in_channels=16, out_channels=1, kernel_size=1, stride=1, padding=0),
+                nn.Sigmoid()
+            )
+        ])
 
 
-        # input shape: (1, 128, 128)
-        self.last_content_extractor = nn.Sequential(
-            nn.Sequential(
-                WSConv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (16, 128, 128)
-            
-            nn.Sequential(
-                WSConv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (64, 32, 32)
+    def forward(self, input, gothic):
+        self.content_list = [gothic]
 
-            nn.Sequential(
-                WSConv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (128, 16, 16)
-
-            nn.Sequential(
-                WSConv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (256, 8, 8)
-
-            nn.Sequential(
-                WSConv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2)
-            ), # (512, 4, 4)
-        )
-
-
-        # input shape: (1, 128, 128)
-        self.font_style_extractor = nn.Sequential(
-            nn.Sequential(
-                WSConv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2),
-            ), # shape: (16, 64, 64)
-
-            nn.Sequential(
-                WSConv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2),
-            ), # shape: (64, 32, 32)
-
-            nn.Sequential(
-                WSConv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2),
-            ), # shape: (128, 16, 16)
-
-            nn.Sequential(
-                WSConv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2),
-            ), # shape: (256, 8, 8)
-            
-            nn.Sequential(
-                WSConv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU(0.2),
-                nn.MaxPool2d(2, 2),
-            ), # shape: (512, 4, 4)
-
-            nn.Sequential(
-                nn.Flatten(),
-                WSLinear(in_features=512*4*4, out_features=512*6),
-                nn.LeakyReLU(0.2)
-            ),
+        for i in range(len(self.content_extractor)):
+            self.content_list.append(self.content_extractor[i](self.content_list[-1]))
         
-            Reshape(shape=(6, 512))
-        )
+        self.style = self.style_extractor(input)
 
-        adain_channel_pairs = [(512, 256), (256, 128), (128, 64)]
-        
-        # input shape: (512, 4, 4)
-        self.first_generator = nn.ModuleList([])
+        # (batch_size, 512+128, 4, 4)
+        latent_vector = torch.cat((self.content_list[-1], self.style), dim=1)
 
-        for in_channels, out_channels in adain_channel_pairs:
-            self.first_generator.append(AdaIN(style_dim=512, in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1))
-            self.first_generator.append(AdaIN(style_dim=512, in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, scale_factor=2.0))
+        out = latent_vector
 
+        for i in range(len(self.generator)):
+            out = self.generator[i](out)
 
-        self.middle_generator = nn.ModuleList([])
-
-        for in_channels, out_channels in adain_channel_pairs:
-            self.middle_generator.append(AdaIN(style_dim=512, in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1))
-            self.middle_generator.append(AdaIN(style_dim=512, in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, scale_factor=2.0))
-
-
-        self.last_generator = nn.ModuleList([])
-
-        for in_channels, out_channels in adain_channel_pairs:
-            self.last_generator.append(AdaIN(style_dim=512, in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1))
-            self.last_generator.append(AdaIN(style_dim=512, in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1, scale_factor=2.0))
-
-        
-        # input shape: (64*3, 32, 32)
-        self.merger = nn.Sequential(
-            WSConv2d(in_channels=64*3, out_channels=64, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(0.2),
-            Upsampling(),
-
-            WSConv2d(in_channels=64, out_channels=16, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(0.2),
-            Upsampling(),
-
-            WSConv2d(in_channels=16, out_channels=1, kernel_size=1, stride=1, padding=0),
-            nn.LeakyReLU(0.2)
-        )
-
-
-    def forward(self, input, first, middle, last):
-        first_content = self.first_content_extractor(first)
-        middle_content = self.middle_content_extractor(middle)
-        last_content = self.last_content_extractor(last)
-
-        styles = self.font_style_extractor(input)
-
-        first_out = first_content
-        middle_out = middle_content
-        last_out = last_content
-
-        for i in range(6):
-            first_out = self.first_generator[i](first_out, style=styles[:, i, :])
-            middle_out = self.middle_generator[i](middle_out, style=styles[:, i, :])
-            last_out = self.last_generator[i](last_out, style=styles[:, i, :])
-
-        # (batch_size, channels_n, H, W)
-        letter_latent_vector = torch.cat((first_out, middle_out, last_out), dim=1)
-
-        out = self.merger(letter_latent_vector)
+            if i < 3:
+                out += F.interpolate(self.content_list[-i-1], scale_factor=2.0)
 
         return out
 
 
-class Loss(nn.Module):
+class DiscriminatorConvBlock(nn.Module):
 
-    def __init__(self, device):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
 
-        self.feature_extractor = vgg16(weights=VGG16_Weights.DEFAULT).features.to(device)
-        self.feature_extractor.eval()
+        # (C_step, H, W) -> (C_step, H, W)
+        self.conv1 = WSConv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.batchnorm1 = nn.BatchNorm2d(out_channels)
 
+        # (C_step, H, W) -> (C_(step-1), H, W)
+        self.conv2 = WSConv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.batchnorm2 = nn.BatchNorm2d(out_channels)
 
-    def forward(self, pred, label):
-        pred_features = self.feature_extractor(pred.repeat(1, 3, 1, 1))
-        label_features = self.feature_extractor(label.repeat(1, 3, 1, 1))
+        # (C_(step-1), H/2, W/2)
+        self.downsample = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
 
-        vgg_loss = F.mse_loss(pred_features, label_features)
-        mse_loss = F.mse_loss(pred, label)
-
-        return vgg_loss, mse_loss
+        self.leakyrelu = nn.LeakyReLU(0.2)
 
     
-if __name__ == '__main__':
-    device = torch.device('cpu')
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.leakyrelu(out)
+        out = self.batchnorm1(out)
 
-    generator = Generator().to(device)
+        out = self.conv2(out)
+        out = self.leakyrelu(out)
+        out = self.batchnorm2(out)
+
+        out = self.downsample(out)
+
+        return out
+
     
-    input = torch.randn((2, 1, 128, 128)).to(device).type(torch.float32)
-    first = torch.randn((2, 1, 128, 128)).to(device).type(torch.float32)
-    middle = torch.randn((2, 1, 128, 128)).to(device).type(torch.float32)
-    last = torch.randn((2, 1, 128, 128)).to(device).type(torch.float32)
-    output = torch.randn((2, 1, 128, 128)).to(device).type(torch.float32)
+class Discriminator(nn.Module):
 
-    criterion = Loss(device=device)
+    def __init__(self):
+        super().__init__()
 
-    start_time = time()
-    pred = generator(input, first, middle, last)
-    print(pred.shape)
+        # input shape: (1, 128, 128)
+        self.main = nn.Sequential(
+            DiscriminatorConvBlock(1, 16), # (16, 64, 64)
+            DiscriminatorConvBlock(16, 64), # (64, 32, 32)
+            DiscriminatorConvBlock(64, 128), # (128, 16, 16)
+            DiscriminatorConvBlock(128, 256), # (256, 8, 8)
+            DiscriminatorConvBlock(256, 512), # (512, 4, 4)
 
-    vgg_loss, mse_loss = criterion(pred, output)
+            WSConv2d(in_channels=512, out_channels=512, kernel_size=4, stride=1, padding=0),
+            nn.LeakyReLU(0.2),
 
-    total_loss = vgg_loss + mse_loss
+            WSConv2d(in_channels=512, out_channels=1, kernel_size=1, stride=1, padding=0),
+            nn.Sigmoid(),
 
-    print(f"total loss: {total_loss}, vgg_loss: {vgg_loss}, mse_loss: {mse_loss}, time: {time() - start_time}")
+            nn.Flatten()
+        )
 
-    total_loss.backward()
+        self.style_classifier = nn.Sequential(
+            DiscriminatorConvBlock(1, 16), # (16, 64, 64)
+            DiscriminatorConvBlock(16, 64), # (64, 32, 32)
+            DiscriminatorConvBlock(64, 128), # (128, 16, 16)
+            DiscriminatorConvBlock(128, 256), # (256, 8, 8)
+            DiscriminatorConvBlock(256, 512), # (512, 4, 4)
 
-    for p in generator.font_style_extractor.parameters():
-        print(p.shape, p.grad[0][0][0][0])
-        break
+            WSConv2d(in_channels=512, out_channels=512, kernel_size=4, stride=1, padding=0),
+            nn.LeakyReLU(0.2),
+
+            WSConv2d(in_channels=512, out_channels=108, kernel_size=1, stride=1, padding=0),
+            nn.Flatten(),
+            nn.Softmax(dim=1)
+        )
+
+    
+    def forward(self, x):
+        return self.main(x), self.style_classifier(x)

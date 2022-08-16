@@ -119,24 +119,16 @@ def get_random_letter():
 
 class FontDataset:
 
-    def __init__(self, font_path, size):
+    def __init__(self, font, font_path, size):
         self.font_path = font_path
         self.letters = torch.zeros((size, 1, 128, 128)).type(torch.float16)
-        self.first_letters = torch.zeros((size, 1, 128, 128)).type(torch.float16)
-        self.middle_letters = torch.zeros((size, 1, 128, 128)).type(torch.float16)
-        self.last_letters = torch.zeros((size, 1, 128, 128)).type(torch.float16)
-
-        self.font = FontImage(self.font_path)
-
+        self.gothic_letters = torch.zeros((size, 1, 128, 128)).type(torch.float16)
 
         for i in range(size):
             random_letter = get_random_letter()
-            self.letters[i] = self.font.text2img(random_letter, tensor=True)
-            first_letter, middle_letter, last_letter = j2hcj(h2j(random_letter))
+            self.letters[i] = font.text2img(random_letter, tensor=True)
+            self.gothic_letters[i] = default_font.text2img(random_letter, tensor=True)
 
-            self.first_letters[i] = default_font.text2img(first_letter, tensor=True).type(torch.float16)
-            self.middle_letters[i] = default_font.text2img(middle_letter, tensor=True).type(torch.float16)
-            self.last_letters[i] = default_font.text2img(last_letter, tensor=True).type(torch.float16)
 
 
 class FontLoader:
@@ -147,27 +139,28 @@ class FontLoader:
 
     
     def __len__(self):
-        return len(self.font_dataset_list) * len(self.font_dataset_list[0]) // batch_size
+        return len(self.font_dataset_list) * len(self.font_dataset_list[0].letters) // self.batch_size
 
 
-    def get(self):
-        input_letters = torch.zeros((self.batch_size, 1, 128, 128)).type(torch.float16)
-        first_letters = torch.zeros((self.batch_size, 1, 128, 128)).type(torch.float16)
-        middle_letters = torch.zeros((self.batch_size, 1, 128, 128)).type(torch.float16)
-        last_letters = torch.zeros((self.batch_size, 1, 128, 128)).type(torch.float16)
-        output_letters = torch.zeros((self.batch_size, 1, 128, 128)).type(torch.float16)
+    def get(self, batch_size=None):
+        if batch_size == None: batch_size = self.batch_size
 
-        for i in range(self.batch_size):
+        input_letters, gothic_letters, output_letters = torch.zeros((3, batch_size, 1, 128, 128)).type(torch.float16)
+        font_labels = torch.zeros((batch_size)).type(torch.long)
 
-            random_font = self.font_dataset_list[randint(0, len(self.font_dataset_list)-1)]
-            input_idx = randint(0, len(random_font)-1)
-            input_letters[i] = random_font.letters[input_idx]
-            first_letters[i] = random_font.first_letters[input_idx]
-            middle_letters[i] = random_font.middle_letters[input_idx]
-            last_letters[i] = random_font.last_letters[input_idx]
-            output_letters[i] = random_font.letters[randint(0, len(random_font)-1)]
+        for i in range(batch_size):
+            
+            font_idx = randint(0, len(self.font_dataset_list)-1)
+            random_font = self.font_dataset_list[font_idx]
+            font_labels[i] = font_idx
 
-        return (input_letters, first_letters, middle_letters, last_letters, output_letters)
+            input_letters[i] = random_font.letters[randint(0, len(random_font.letters)-1)]
+
+            output_idx = randint(0, len(random_font.letters)-1)
+            gothic_letters[i] = random_font.gothic_letters[output_idx]
+            output_letters[i] = random_font.letters[output_idx]
+
+        return (input_letters, gothic_letters, output_letters, font_labels)
 
 
 if __name__ == '__main__':
@@ -179,8 +172,10 @@ if __name__ == '__main__':
     valid_dataset_list = []
 
     for font_file in tqdm(font_file_list):
-        train_dataset_list.append(FontDataset(f"{base_path}{font_file}", size=500))
-        valid_dataset_list.append(FontDataset(f"{base_path}{font_file}", size=50))
+        font_path = f"{base_path}{font_file}"
+        font = FontImage(font_path)
+        train_dataset_list.append(FontDataset(font, font_path, size=500))
+        valid_dataset_list.append(FontDataset(font, font_path, size=50))
 
     with open("data/train_dataset_list.pickle", "wb") as f:
         pickle.dump(train_dataset_list, f, pickle.HIGHEST_PROTOCOL)

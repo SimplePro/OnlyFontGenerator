@@ -19,15 +19,7 @@ FIRST_LETTER = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', '
 MIDDLE_LETTER = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ','ㅢ', 'ㅣ']
 LAST_LETTER = ['ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
 
-# 폰트를 attribute로 하여 글자를 생성하는 클래스.
-class FontImage:
-    
-    def __init__(self, font_path):
-        self.font = ImageFont.truetype(font_path, 100)
-
-    
-    # 생성된 글자 이미지를 크롭하여 가운데로 위치 조정하는 메소드.
-    def crop_img(self, image):
+def crop_img(image):
 
         image = np.array(image)
         # 글자의 시작, 끝의 좌표 정의
@@ -83,6 +75,13 @@ class FontImage:
         return croped_image
 
 
+# 폰트를 attribute로 하여 글자를 생성하는 클래스.
+class FontImage:
+    
+    def __init__(self, font_path):
+        self.font = ImageFont.truetype(font_path, 100)
+
+
     # 글자가 파라메터로 입력되면 이미지로 변환하여 반환한다.
     def text2img(self, letter, tensor=False):
         image = Image.new(mode="L", size=(128, 128), color=255)
@@ -97,7 +96,7 @@ class FontImage:
             return None
         
         # 이미지를 중앙으로 재배치
-        image = self.crop_img(image)
+        image = crop_img(image)
 
         if tensor:
             # 텐서로 변환
@@ -165,20 +164,28 @@ class FontLoader:
 
 if __name__ == '__main__':
 
-    base_path = "data/font-ttf/"
-    font_file_list = listdir(base_path)
+    # base_path = "data/font-ttf/"
+    # font_file_list = listdir(base_path)
 
-    train_dataset_list = []
-    valid_dataset_list = []
+    # train_dataset_list = []
+    # valid_dataset_list = []
 
-    for font_file in tqdm(font_file_list):
-        font_path = f"{base_path}{font_file}"
-        font = FontImage(font_path)
-        train_dataset_list.append(FontDataset(font, font_path, size=500))
-        valid_dataset_list.append(FontDataset(font, font_path, size=50))
+    # for font_file in tqdm(font_file_list):
+    #     font_path = f"{base_path}{font_file}"
+    #     font = FontImage(font_path)
+    #     train_dataset_list.append(FontDataset(font, font_path, size=500))
+    #     valid_dataset_list.append(FontDataset(font, font_path, size=50))
 
-    with open("data/train_dataset_list.pickle", "wb") as f:
-        pickle.dump(train_dataset_list, f, pickle.HIGHEST_PROTOCOL)
+    # with open("data/train_dataset_list.pickle", "wb") as f:
+    #     pickle.dump(train_dataset_list, f, pickle.HIGHEST_PROTOCOL)
 
-    with open("data/valid_dataset_list.pickle", "wb") as f:
-        pickle.dump(valid_dataset_list, f, pickle.HIGHEST_PROTOCOL)
+    # with open("data/valid_dataset_list.pickle", "wb") as f:
+    #     pickle.dump(valid_dataset_list, f, pickle.HIGHEST_PROTOCOL)
+
+    # han_donghwan_img = Image.open("./han_donghwan.png").convert("L").resize((128, 128))
+    
+    # han_donghwan_img = crop_img(han_donghwan_img)
+    # han_donghwan_img.save("./han_donghwan.png")
+
+    default_font.text2img("한").save("./han_gothic.png")
+    default_font.text2img("글").save("./guel_gothic.png")

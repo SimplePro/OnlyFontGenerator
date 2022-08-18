@@ -53,3 +53,15 @@ Test
 - my handwriting (left: my handwriting, right: predicted result)    
     
 ![image](https://user-images.githubusercontent.com/66504341/185335284-4e92b94a-3186-4e3d-8572-a02dbbcad06f.png)
+
+
+Dataset
+-----------------------
+- [handwriting dataset](https://clova.ai/handwriting/list.html)    
+- [gothic dataset](https://hangeul.naver.com/2021/fonts/nanum)    
+
+
+Acknowledgements
+--------------------------
+- [GAN-handwriting-styler](https://github.com/jeina7/GAN-handwriting-styler) by [jeina7](https://github.com/jeina7)    
+- [zi2zi](https://github.com/kaonashi-tyc/zi2zi) by [kaonash-tyc](https://github.com/kaonashi-tyc)

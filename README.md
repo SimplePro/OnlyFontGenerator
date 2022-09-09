@@ -1,4 +1,4 @@
-# FontGenerator-onlyone
+# OnlyFontGenerator
 - 한 글자로 글씨체를 분석하는 인공지능.
 
 Model Structure

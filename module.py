@@ -72,55 +72,6 @@ def pred_by_style_content(generator, content_list, style_features):
     return out
 
 
-# @torch.no_grad()
-# def pred_by_style_content_adain(generator, content_features, style_features):
-#         constant_input = generator.constant_input(content_letters)
-
-#         gray_outs = []
-
-#         out = generator.main[0](constant_input, content_features[:, :2, :])
-#         gray_outs.append(generator.to_gray[0](out))
-
-#         out = generator.main[1](out, content_features[:, 2:4, :])
-#         gray_outs.append(generator.to_gray[1](out))
-
-#         out = generator.main[2](out, content_features[:, 4:6, :])
-#         gray_outs.append(generator.to_gray[2](out))
-
-#         out = generator.main[3](out, style_features[:, 0:2, :])
-#         gray_outs.append(generator.to_gray[3](out))
-
-#         out = generator.main[4](out, style_features[:, 2:4, :])
-#         gray_outs.append(generator.to_gray[4](out))
-
-#         out = generator.main[5](out, style_features[:, 4:6, :])
-#         gray_outs.append(generator.to_gray[5](out))
-
-#         out = gray_outs[0]
-
-#         for i in range(1, len(gray_outs)):
-#             out = generator.upsampling(out) + gray_outs[i]
-
-#         out = torch.sigmoid(out)
-
-#         return out
-
-
-# @torch.no_grad()
-# def interpolate_adain(generator, save_dir, content_features, start_style_features, end_style_features, step_n=100):
-#     step_gap = (end_style_features - start_style_features) / step_n
-
-#     style = start_style_features
-
-#     for step in range(step_n):
-#         pred = pred_by_style_content_adain(generator, content_features, style) # (1, 1, 128, 128)
-#         pred_img = transforms.ToPILImage()(pred.cpu().detach().squeeze(0))
-        
-#         pred_img.save(f"{save_dir}/step{step}.png")
-
-#         style += step_gap
-
-
 @torch.no_grad()
 def interpolate(generator, save_dir, content_list, start_style_features, end_style_features, step_n=100):
     step_gap = (end_style_features - start_style_features) / step_n

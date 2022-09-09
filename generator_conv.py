@@ -226,91 +226,6 @@ class Generator(nn.Module):
 
         return out
 
-    
-# class Z2W(nn.Module):
-
-#     def __init__(
-#         self,
-#         z_dim=256,
-#         style_n=16,
-#         style_dim=128
-#     ):
-
-#         super().__init__()
-
-#         self.z_dim = z_dim
-#         self.style_n = style_n
-#         self.style_dim = style_dim
-
-#         self.main = nn.ModuleList([])
-
-#         for _ in range(self.style_n):
-#             self.main.append(
-#                 nn.Sequential(
-#                     EqualLinear(z_dim, style_dim),
-#                     nn.LeakyReLU(0.2),
-
-#                     EqualLinear(style_dim, style_dim),
-#                     nn.LeakyReLU(0.2),
-
-#                     EqualLinear(style_dim, style_dim),
-#                     nn.LeakyReLU(0.2),
-
-#                     EqualLinear(style_dim, style_dim),
-#                     nn.LeakyReLU(0.2),
-
-#                     EqualLinear(style_dim, style_dim),
-#                     nn.LeakyReLU(0.2),
-#                 )
-#             )
-
-
-#     def forward(self, z):
-#         # x shape: (batch_size, 256)
-
-#         outs = []
-
-#         for i in range(self.style_n):
-#             outs.append(
-#                 self.main[i](z).unsqueeze(2) # (batch_size, style_dim: 128, 1)
-#             )
-
-#         style = torch.cat(outs, dim=2) # (batch_size, style_dim, style_n)
-#         style = style.reshape(-1, self.style_dim, 4, 4)
-
-#         return style
-
-
-
-# class GANGEN(nn.Module):
-
-#     def __init__(self):
-#         super().__init__()
-
-#         self.generator = Generator()
-#         self.z2w = Z2W()
-
-    
-#     def forward(self, content_letters, z):
-#         style_features = self.z2w(z)
-
-#         content_list = [content_letters]
-
-#         for i in range(len(self.generator.content_extractor)):
-#             content_list.append(self.generator.content_extractor[i](content_list[-1]))
-
-#         latent_vector = torch.cat((content_list[-1], style_features), dim=1)
-#         out = latent_vector
-
-#         for i in range(len(self.generator.generator)):
-#             out = self.generator.generator[i](out)
-
-#             if i < 3:
-#                 out += F.interpolate(content_list[-i-1], scale_factor=2.0)
-
-#         return out
-
-
 
 if __name__ == '__main__':
 
@@ -328,12 +243,3 @@ if __name__ == '__main__':
         param_count += p.numel()
 
     print(param_count)
-
-    # z2w = Z2W()
-
-    # print(z2w(torch.randn((2, 256))).shape)
-
-    # gangen = GANGEN()
-
-    # pred = gangen(content_letters, torch.randn((2, 256)))
-    # print(pred.shape)
